@@ -1,0 +1,19 @@
+- name: Configure a basic vm with needed tools
+  hosts: all
+  remote_user: "{{ lookup('ansible.builtin.env', 'admin_user') }}"
+  become: yes
+  become_user: root
+  become_method: sudo
+  tasks:
+    - name: Update
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: yes
+    - name: Install mysql client
+      ansible.builtin.apt:
+        name: mysql-client-8.0
+        state: present
+    - name: Copy cert
+      ansible.builtin.copy:
+        src: "{{ inventory_dir }}/misc/DigiCertGlobalRootCA.crt.pem"
+        dest: "/opt/"
