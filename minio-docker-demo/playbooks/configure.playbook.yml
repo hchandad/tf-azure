@@ -1,0 +1,119 @@
+# provision playbook to be executed on first server access
+---
+# TODO:
+# - apt update / apt upgrade
+# - Install nginx-full
+# - Install docker engine
+# - Install chkrootkit
+# - enable ufw
+- name: Provision bare metal server
+  hosts: all
+  remote_user: minio
+  become: yes
+  become_user: root
+  become_method: sudo
+  vars:
+    COMMON_SERVER_DEPENDENCIES:
+      - acl
+      - htop
+      - ntp
+      - sudo
+      - vim
+      - iftop
+      - iotop
+      - mosh
+      - git
+      - screen
+      - build-essential
+      - apt-file
+      - links
+      - tree
+      - pwgen
+      - libxml2-dev
+      - libxslt1-dev
+      - python3-dev
+      - unzip
+      - chkrootkit
+      - etckeeper
+      - ufw
+      - apt-show-versions
+
+  pre_tasks:
+    - name: update
+      apt:
+        update_cache: yes
+        upgrade: yes
+    - name: apt-get update, dist-upgrade and autoremove
+      apt:
+        update_cache: yes
+        upgrade: dist
+        autoremove: yes
+  tasks:
+    - name: update
+      apt:
+        update_cache: yes
+        upgrade: yes
+    - name: apt-get update, dist-upgrade and autoremove
+      apt:
+        update_cache: yes
+        upgrade: dist
+        autoremove: yes
+    - name: Install dependencies
+      apt:
+        name: "{{ COMMON_SERVER_DEPENDENCIES }}"
+        state: present
+    - name: Install httpd
+      apt:
+        name: nginx-full
+        state: present
+    - name: Enable ufw
+      ufw:
+        state: enabled
+    - name: Allow ssh
+      ufw:
+        rule: allow
+        port: ssh
+    - name: Allow nginx
+      ufw:
+        rule: allow
+        port: 80,443
+        proto: tcp
+    - name: Install certbot
+      snap:
+        name: certbot
+        classic: true
+    - name: Install password file creation utility
+      apt:
+        name: apache2-utils
+        state: present
+    - name: Copy nginx config
+      template:
+        src: templates/nginx.conf
+        dest: /home/{{ ansible_ssh_user }}/nginx.conf
+    - name: Copy docker-compose.yaml
+      template:
+        src: templates/docker-compose.yaml
+        dest: /home/{{ ansible_ssh_user }}/docker-compose.yaml
+      notify:
+        - Compose up
+
+  handlers:
+    - name: Compose up
+      ansible.builtin.shell:
+        cmd: docker compose up -d
+        chdir: /home/{{ ansible_ssh_user }}/
+        executable: /bin/bash
+      become: yes
+      become_user: "{{ ansible_ssh_user }}"
+      become_method: sudo
+
+  roles:
+    - role: "nickjj.docker" 
+      tags: ["docker"]
+      docker__edition: "ce"
+      docker__channel: ["stable"]
+      docker__version: "" # latest
+      docker__compose_v2_version: "" # latest
+      docker__pip_docker_state: "absent"
+      docker__pip_docker_compose_state: "absent"
+      docker__users: ["minio"]
