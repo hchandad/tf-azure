@@ -8,6 +8,10 @@ terraform {
       source  = "hashicorp/random"
       version = "3.6.0"
     }
+    cloudflare = {
+      source = "cloudflare/cloudflare"
+      version = "~> 4.0"
+    }
   }
 }
 
@@ -20,6 +24,20 @@ provider "azurerm" {
 
 provider "random" {
 
+}
+
+variable "cloudflare_api_token" {
+  description = "cloudflare api token, you can generate one from MyProfile > ApiTokens" 
+  type = string
+}
+
+variable "cloudlflare_account_id" {
+  description = "cloudflare account id, get it from the dashboard url"
+  type = string
+}
+
+provider "cloudflare" {
+  api_token = var.cloudflare_api_token 
 }
 
 variable "admin_username" {
@@ -80,7 +98,7 @@ resource "azurerm_network_security_group" "minio_linux_vm_security_group" {
   }
   security_rule {
     name                       = "http"
-    priority                   = 1001
+    priority                   = 1002
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
@@ -91,7 +109,7 @@ resource "azurerm_network_security_group" "minio_linux_vm_security_group" {
   }
   security_rule {
     name                       = "https"
-    priority                   = 1001
+    priority                   = 1003
     direction                  = "Inbound"
     access                     = "Allow"
     protocol                   = "Tcp"
@@ -127,7 +145,7 @@ resource "azurerm_linux_virtual_machine" "minio_test_vm" {
   resource_group_name = azurerm_resource_group.minio_linux_vm_group.name
   location            = azurerm_resource_group.minio_linux_vm_group.location
   // TODO: update size / and disk
-  size           = "Standard_DS1_v2"
+  size           = "Standard_D8as_v5"
   admin_username = var.admin_username
 
   network_interface_ids = [azurerm_network_interface.minio_linux_nic.id]
@@ -154,7 +172,7 @@ resource "azurerm_linux_virtual_machine" "minio_test_vm" {
   computer_name = "miniodemo"
 }
 
-resource "random_password" "mysql_password" {
+resource "random_password" "minio_password" {
   length = 16
 }
 
@@ -171,4 +189,38 @@ resource "local_file" "hosts" {
     ip   = azurerm_linux_virtual_machine.minio_test_vm.public_ip_address
   })
   filename = "hosts"
+}
+
+resource "local_file" "env" {
+  content = templatefile("./templates/.env.tftpl", {
+    instance_ip = azurerm_linux_virtual_machine.minio_test_vm.public_ip_address
+    admin_username = var.admin_username
+    minio_password = random_password.minio_password.result
+  })
+  filename = ".env"
+}
+
+// dns
+
+resource "cloudflare_zone" "getcata_com" {
+  account_id = var.cloudlflare_account_id
+  zone = "getcata.com"
+}
+
+resource "cloudflare_record" "minio_demo_azure_getcata_com" {
+  zone_id = cloudflare_zone.getcata_com.id
+  name = "v1.minio.azure.getcata.com"  
+  value = azurerm_linux_virtual_machine.minio_test_vm.public_ip_address
+  type = "A"
+  proxied = false
+  ttl = "300"
+}
+
+resource "cloudflare_record" "console_minio_demo_azure_getcata_com" {
+  zone_id = cloudflare_zone.getcata_com.id
+  name = "console.v1.minio.azure.getcata.com"  
+  value = azurerm_linux_virtual_machine.minio_test_vm.public_ip_address
+  type = "A"
+  proxied = false
+  ttl = "300"
 }
