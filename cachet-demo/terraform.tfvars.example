@@ -1,0 +1,5 @@
+admin_username = "hchandad"
+public_key = "~/.ssh/id_rsa.pub"
+cloudflare_api_token = "XLkqXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXhTzny"
+cloudlflare_account_id = "109XXXXXXXXXXXXXXXXXXXXXXXXXXdb3"
+domain_name = "cachet.0x.hchandad.dev"

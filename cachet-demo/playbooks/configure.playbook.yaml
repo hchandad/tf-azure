@@ -1,0 +1,224 @@
+# provision playbook to be executed on first server access
+---
+# TODO:
+# - apt update / apt upgrade
+# - Install nginx-full
+# - Install docker engine
+# - Install elk agent
+# - Install chkrootkit
+# - enable ufw
+- name: Provision bare metal server
+  hosts: cachet
+  #remote_user: "{{ admin_username }}" # TODO: replace with var
+  become: true
+  become_user: root
+  become_method: ansible.builtin.sudo
+  vars:
+    domain_name: "{{ domain_name }}"
+    common_server_hostname: cachet.l3m.demo.noops.ma
+    checkout_directory: "/var/www/html/cachet/"
+    admin_email: "hchandad@proton.me"
+    common_server_dependencies:
+      - acl
+      - htop
+      - ntp
+      - sudo
+      - vim
+      - iftop
+      - iotop
+      - mosh
+      - git
+      - screen
+      - build-essential
+      - apt-file
+      - links
+      - tree
+      - pwgen
+      - libxml2-dev
+      - libxslt1-dev
+      - python3-dev
+      - unzip
+      - chkrootkit
+      - etckeeper
+      - ufw
+      - apt-show-versions
+    php_server_dependencies:
+      - php
+      - php-curl
+      - php-pear
+      - php-gd
+      - php-zip
+      - php-mbstring
+      - php-mysql
+      - php-xml
+      - curl
+      - php-ctype
+      - php-pdo
+      - php-mbstring
+      - php-xml
+      - php-bcmath
+      - php-curl
+      - composer
+      - php-fpm
+      - mcrypt
+      - php-apcu
+      - php-sqlite3
+
+
+
+  tasks:
+    - name: Update
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: true
+    - name: Update, dist-upgrade and autoremove
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+        autoremove: true
+    - name: Set the hostname
+      ansible.builtin.hostname:
+        name: "{{ common_server_hostname }}"
+    - name: Install dependencies
+      ansible.builtin.apt:
+        name: "{{ common_server_dependencies }}"
+        state: present
+    - name: Install php dependencies
+      apt:
+        name: "{{ php_server_dependencies }}"
+        state: present
+    - name: Make sure apache2 is not installed
+      ansible.builtin.apt:
+        name: apache2
+        state: absent
+    - name: Install httpd
+      ansible.builtin.apt:
+        name: nginx-full
+        state: present
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
+    - name: Allow ssh
+      community.general.ufw:
+        rule: allow
+        port: ssh
+    - name: Allow nginx
+      community.general.ufw:
+        rule: allow
+        port: 80,443
+        proto: tcp
+    - name: Install certbot
+      ansible.builtin.apt:
+        name:
+          - certbot
+          - python3-certbot-nginx
+    - name: Requesting certificate
+      ansible.builtin.shell:
+        cmd: "sudo certbot certonly --non-interactive --agree-tos -m {{ admin_email }} --nginx -d {{ domain_name }}"
+      args:
+        creates: "/etc/letsencrypt/live/{{ domain_name }}/fullchain.pem"
+    - name: Change directory permissions
+      ansible.builtin.file:
+        dest: "/var/www/html"
+        owner: www-data
+        group: www-data
+        recurse: true
+    - name: Creates npm working directory
+      ansible.builtin.file:
+        path: /var/www/.npm/
+        state: directory
+        owner: www-data
+        group: www-data
+    - name: Create nvm working directory
+      ansible.builtin.file:
+        path: /var/www/.nvm/
+        state: directory
+        owner: www-data
+        group: www-data
+    - name: Install nvm
+      ansible.builtin.shell: >
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.4/install.sh | bash
+      args:
+        creates: "/var/www/.nvm/nvm.sh"
+      become: true
+      become_user: www-data
+      become_method: ansible.builtin.sudo
+    - name: Install node
+      ansible.builtin.shell:
+        cmd: source /var/www/.nvm/nvm.sh && nvm install --lts
+        executable: /bin/bash
+      become: true
+      become_user: www-data
+      become_method: ansible.builtin.sudo
+    - name: Clone the repo
+      ansible.builtin.git:
+        repo: https://github.com/cachethq/cachet.git
+        dest: "{{ checkout_directory }}"
+        version: 3.x
+      become: true
+      become_user: www-data
+      become_method: ansible.builtin.sudo
+    - name: Copy .env
+      template:
+        src: templates/env.j2
+        dest: "{{ checkout_directory }}/.env"
+        owner: www-data
+        group: www-data
+      become: yes
+      become_user: www-data
+      become_method: sudo
+    - name: Copy nginx config
+      template:
+        src: templates/default.conf
+        dest: /etc/nginx/sites-available/default
+      notify:
+        - Restart nginx
+    - block:
+      - name: Create SQLite local file
+        ansible.builtin.copy:
+          content: ""
+          dest: "{{ checkout_directory }}/database/database.sqlite"
+          owner: www-data
+          group: www-data
+      - name: Composer install
+        ansible.builtin.shell:
+          chdir: "{{ checkout_directory }}"
+          cmd: composer install
+      - name: Run migrations
+        ansible.builtin.shell:
+          chdir: "{{ checkout_directory }}"
+          cmd: php artisan migrate --force
+      - name: Generate key
+        ansible.builtin.shell:
+          chdir: "{{ checkout_directory }}"
+          cmd: php artisan key:generate --force
+      - name: Vendor publish
+        ansible.builtin.shell:
+          chdir: "{{ checkout_directory }}"
+          cmd: php artisan vendor:publish --all
+      - name: Npm install
+        ansible.builtin.shell:
+          chdir: "{{ checkout_directory }}"
+          cmd: ' source /var/www/.nvm/nvm.sh && npm install --legacy-peer-deps'
+          executable: /bin/bash
+      - name: Npm run build
+        ansible.builtin.shell:
+          chdir: "{{ checkout_directory }}"
+          cmd: ' source /var/www/.nvm/nvm.sh && npm run build'
+          executable: /bin/bash
+      - name: Optimize clear
+        ansible.builtin.shell:
+          chdir: "{{ checkout_directory }}"
+          cmd: php artisan optimize:clear
+      become: true
+      become_user: www-data
+      become_method: ansible.builtin.sudo
+
+
+  handlers:
+    - name: Restart nginx
+      ansible.builtin.service:
+        name: nginx
+        state: restarted
+
+ 
