@@ -1,0 +1,80 @@
+# provision playbook to be executed on first server access
+---
+# TODO:
+# - apt update / apt upgrade
+# - Install nginx-full
+# - Install docker engine
+# - Install chkrootkit
+# - enable ufw
+- name: Provision bare metal server
+  hosts: all
+# remote_user: hchandad
+  become: true
+  become_user: root
+  become_method: ansible.builtin.sudo
+  vars:
+    common_server_dependencies:
+      - acl
+      - htop
+      - ntp
+      - sudo
+      - vim
+      - iftop
+      - iotop
+      - mosh
+      - git
+      - screen
+      - build-essential
+      - apt-file
+      - links
+      - tree
+      - pwgen
+      - libxml2-dev
+      - libxslt1-dev
+      - python3-dev
+      - unzip
+      - chkrootkit
+      - etckeeper
+      - ufw
+      - apt-show-versions
+      - tmux
+    python_dependencies:
+      - python3-pip
+  pre_tasks:
+    - name: Update
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: yes
+    - name: Update, dist-upgrade and autoremove
+      ansible.builtin.apt:
+        update_cache: yes
+        upgrade: dist
+        autoremove: yes
+ 
+  tasks:
+    - name: Install dependencies
+      ansible.builtin.apt:
+        name: "{{ common_server_dependencies }}"
+        state: present
+    - name: Install python dependencies
+      ansible.builtin.apt:
+        name: "{{ python_dependencies }}"
+        state: present
+    - name: Enable ufw
+      community.general.ufw:
+        state: enabled
+    - name: Allow ssh
+      community.general.ufw:
+        rule: allow
+        port: ssh
+
+  roles:
+    - role: "nickjj.docker" 
+      tags: ["docker"]
+      docker__edition: "ce"
+      docker__channel: ["stable"]
+      docker__version: "" # latest
+      docker__compose_v2_version: "" # latest
+      docker__pip_docker_state: "absent"
+      docker__pip_docker_compose_state: "absent"
+      docker__users: ["hchandad"]
